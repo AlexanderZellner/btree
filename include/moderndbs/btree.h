@@ -120,7 +120,7 @@ struct BTree : public Segment {
                             //existing key
                             children_vector.at(lower_bound.first) = child;
                             // write back vector
-                            for (unsigned long i = 0; i < this->count; ++i) {
+                            for (uint64_t i = 0; i < this->count; ++i) {
                                 if (i < keys_vector.size()) {
                                     keys[i] = keys_vector.at(i);
                                 }
@@ -142,7 +142,7 @@ struct BTree : public Segment {
             this->count++;
 
             // Copy vectors back to array
-            for (unsigned long i = 0; i < this->count; ++i) {
+            for (uint64_t i = 0; i < this->count; ++i) {
                if (i < keys_vector.size()) {
                    keys[i] = keys_vector.at(i);
                }
@@ -504,13 +504,9 @@ struct BTree : public Segment {
                         // leaf is not root
                         auto* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
 
-                        if (keyT < separator) {
-                            // key is on old page -> change new page and old page index
-                            //parent_node->insert(separator, current_id);
-
-                        }
                         assert(!parent_node->is_full());
                         assert(parent_node->level >= 1);
+
                         parent_node->insert(separator, new_leaf_id);
                         isDirty = true;
                         isDirty_parent = true;
@@ -531,7 +527,7 @@ struct BTree : public Segment {
 
                     if(parent_page_id != 0) {
                         // leaf is not root -> has parent
-                        if (bufferFrame_parent != nullptr) {
+                        if (bufferFrame_parent != NULL) {
                             buffer_manager.unfix_page(*bufferFrame_parent, isDirty_parent);
                         }
                     }
