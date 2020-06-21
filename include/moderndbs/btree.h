@@ -566,23 +566,25 @@ struct BTree : public Segment {
                             bufferFrame = bufferFrame_new;
                         }
                     } else {
-                        auto* parent_node = reinterpret_cast<InnerNode *>(bufferFrame_parent->get_data());
+                        if (bufferFrame_parent != nullptr) {
+                            auto *parent_node = reinterpret_cast<InnerNode *>(bufferFrame_parent->get_data());
 
-                        assert(!parent_node->is_full());
-                        parent_node->level = innerNode->level + 1;
-                        parent_node->insert(separator, new_innerNode_id);
+                            assert(!parent_node->is_full());
+                            parent_node->level = innerNode->level + 1;
+                            parent_node->insert(separator, new_innerNode_id);
 
-                        isDirty = true;
-                        isDirty_parent = true;
+                            isDirty = true;
+                            isDirty_parent = true;
 
-                        auto lowerBound = parent_node->lower_bound(keyT);
+                            auto lowerBound = parent_node->lower_bound(keyT);
 
-                        if (lowerBound.second) {
-                            // not the last key -> unfix new bufferFrame
-                            buffer_manager.unfix_page(*bufferFrame_new, isDirty);
-                        } else {
-                            buffer_manager.unfix_page(*bufferFrame, isDirty);
-                            bufferFrame = bufferFrame_new;
+                            if (lowerBound.second) {
+                                // not the last key -> unfix new bufferFrame
+                                buffer_manager.unfix_page(*bufferFrame_new, isDirty);
+                            } else {
+                                buffer_manager.unfix_page(*bufferFrame, isDirty);
+                                bufferFrame = bufferFrame_new;
+                            }
                         }
                     }
                 } else {
