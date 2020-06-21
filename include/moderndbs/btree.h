@@ -294,11 +294,11 @@ struct BTree : public Segment {
         void erase(const KeyT& keyT) {
             auto lower_bound = this->lower_bound(keyT);
             uint32_t i = lower_bound.first;
-            if (lower_bound, keys[lower_bound.first - 1] == keyT) {
-                memmove(keys + i, keys + i + 1, this->count - i - 1 * sizeof(KeyT));
-                memmove(keys + i, keys + i + 1, this->count - i - 1 * sizeof(ValueT));
+            if (keys[lower_bound.first] == keyT) {
+                memmove(keys + i, keys + i + 1, (this->count - i - 1) * sizeof(KeyT));
+                memmove(values + i, values + i + 1, (this->count - i - 1) * sizeof(ValueT));
 
-                assert(this->count > 0);
+                assert(this->count >= 0);
                 this->count--;
             }
         }
@@ -398,7 +398,9 @@ struct BTree : public Segment {
         if (lowerBound.second) {
             // first > KeyT => -1
             //TODO: check == keyT
-            value = leafNode->values[value_index];
+            if (leafNode->keys[value_index] == keyT) {
+                value = leafNode->values[value_index];
+            }
         } else {
             // all found keys were smaller than keyT => no result
             value = {};
@@ -410,8 +412,44 @@ struct BTree : public Segment {
 
     /// Erase an entry in the tree.
     /// @param[in] key      The key that should be searched.
-    void erase(const KeyT&) {
-        throw std::logic_error{"not implemented"};
+    void erase(const KeyT& keyT) {
+        if (!root) {
+            // cant't delete from empty tree
+            return;
+        }
+
+        uint64_t next_page;
+        BufferFrame* bufferFrame = &buffer_manager.fix_page(root.value(), false);
+        Node* node = reinterpret_cast<Node*>(bufferFrame->get_data());
+
+        while(!node->is_leaf()) {
+            // inner node
+            InnerNode* innerNode = reinterpret_cast<InnerNode*>(node);
+            // first keys[index] > keyT -> index - 1 ==> next_page
+            auto lowerBound = innerNode->lower_bound(keyT);
+            uint32_t child_index = 0;
+            if (lowerBound.second) {
+                // was - 1 here
+                child_index = lowerBound.first;
+            } else {
+                // keyT > all other keys -> must be in the most right branch
+                child_index = node->count - 1;
+            }
+
+            next_page = innerNode->children[child_index];
+
+            BufferFrame* bufferFrame_child = &buffer_manager.fix_page(next_page, false);
+            buffer_manager.unfix_page(*bufferFrame, false);
+            bufferFrame = bufferFrame_child;
+
+            node = reinterpret_cast<Node*>(bufferFrame->get_data());
+        }
+        // node is leaf
+        LeafNode* leafNode = reinterpret_cast<LeafNode*>(node);
+
+        // remove leaf if node == empty -> delete node
+        leafNode->erase(keyT);
+
     }
 
     /// Inserts a new entry into the tree.
