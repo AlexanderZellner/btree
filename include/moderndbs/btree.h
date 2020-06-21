@@ -30,7 +30,6 @@ struct BTree : public Segment {
 
     struct InnerNode: public Node {
         /// The capacity of a node.
-        /// TODO think about the capacity that the nodes have
         static constexpr uint32_t kCapacity = PageSize / (sizeof(KeyT) + sizeof(ValueT)) - 2;
 
         /// The keys.
@@ -116,13 +115,12 @@ struct BTree : public Segment {
             } else {
                 if (lower_bound.second) {
                     keys_vector.insert(keys_vector.begin() + lower_bound.first, keyT);
-                    /// TODO: Check tree side
                     if (lower_bound.first < this->count - 1) {
                         if(keyT > keys[lower_bound.first]) {
                             //existing key
                             children_vector.at(lower_bound.first) = child;
                             // write back vector
-                            for (auto i = 0; i < this->count; ++i) {
+                            for (unsigned long i = 0; i < this->count; ++i) {
                                 if (i < keys_vector.size()) {
                                     keys[i] = keys_vector.at(i);
                                 }
@@ -144,7 +142,7 @@ struct BTree : public Segment {
             this->count++;
 
             // Copy vectors back to array
-            for (auto i = 0; i < this->count; ++i) {
+            for (unsigned long i = 0; i < this->count; ++i) {
                if (i < keys_vector.size()) {
                    keys[i] = keys_vector.at(i);
                }
@@ -159,7 +157,7 @@ struct BTree : public Segment {
             // node must be full
             assert(this->count == kCapacity);
             auto middle = this->count  / 2;
-            InnerNode* new_inner_node = reinterpret_cast<InnerNode*>(buffer);
+            auto* new_inner_node = reinterpret_cast<InnerNode*>(buffer);
 
             this->count -= middle;
             new_inner_node->count = middle;
@@ -192,7 +190,6 @@ struct BTree : public Segment {
 
     struct LeafNode: public Node {
         /// The capacity of a node.
-        /// TODO think about the capacity that the nodes have
         static constexpr uint32_t kCapacity = (PageSize / (sizeof(KeyT) + sizeof(ValueT))) - 2;
 
         /// The keys.
@@ -309,7 +306,7 @@ struct BTree : public Segment {
         KeyT split(std::byte* buffer) {
             assert(this->count == kCapacity);
             auto middle = (this->count - 1) / 2;
-            LeafNode* new_leaf_node = reinterpret_cast<LeafNode*>(buffer);
+            auto* new_leaf_node = reinterpret_cast<LeafNode*>(buffer);
 
             this->count -= middle;
             new_leaf_node->count = middle;
@@ -318,7 +315,6 @@ struct BTree : public Segment {
 
             auto* start_key = keys + this->count;
             auto* start_value = values + this->count;
-            //TODO: check if +1 keys needed
             std::copy(start_key, start_key + middle, new_leaf_node->keys);
             std::copy(start_value, start_value + middle + 1, new_leaf_node->values);
 
@@ -364,11 +360,11 @@ struct BTree : public Segment {
 
         uint64_t next_page;
         BufferFrame* bufferFrame = &buffer_manager.fix_page(root.value(), false);
-        Node* node = reinterpret_cast<Node*>(bufferFrame->get_data());
+        auto* node = reinterpret_cast<Node*>(bufferFrame->get_data());
 
         while(!node->is_leaf()) {
             // inner node
-            InnerNode* innerNode = reinterpret_cast<InnerNode*>(node);
+            auto* innerNode = reinterpret_cast<InnerNode*>(node);
             // first keys[index] > keyT -> index - 1 ==> next_page
             auto lowerBound = innerNode->lower_bound(keyT);
             uint32_t child_index = 0;
@@ -390,14 +386,13 @@ struct BTree : public Segment {
             node = reinterpret_cast<Node*>(bufferFrame->get_data());
         }
         // node is leaf
-        LeafNode* leafNode = reinterpret_cast<LeafNode*>(node);
+        auto* leafNode = reinterpret_cast<LeafNode*>(node);
         auto lowerBound = leafNode->lower_bound(keyT);
         uint32_t value_index = lowerBound.first;
         std::optional<ValueT> value;
 
         if (lowerBound.second) {
             // first > KeyT => -1
-            //TODO: check == keyT
             if (leafNode->keys[value_index] == keyT) {
                 value = leafNode->values[value_index];
             }
@@ -420,11 +415,11 @@ struct BTree : public Segment {
 
         uint64_t next_page;
         BufferFrame* bufferFrame = &buffer_manager.fix_page(root.value(), false);
-        Node* node = reinterpret_cast<Node*>(bufferFrame->get_data());
+        auto* node = reinterpret_cast<Node*>(bufferFrame->get_data());
 
         while(!node->is_leaf()) {
             // inner node
-            InnerNode* innerNode = reinterpret_cast<InnerNode*>(node);
+            auto* innerNode = reinterpret_cast<InnerNode*>(node);
             // first keys[index] > keyT -> index - 1 ==> next_page
             auto lowerBound = innerNode->lower_bound(keyT);
             uint32_t child_index = 0;
@@ -445,7 +440,7 @@ struct BTree : public Segment {
             node = reinterpret_cast<Node*>(bufferFrame->get_data());
         }
         // node is leaf
-        LeafNode* leafNode = reinterpret_cast<LeafNode*>(node);
+        auto* leafNode = reinterpret_cast<LeafNode*>(node);
 
         // remove leaf if node == empty -> delete node
         leafNode->erase(keyT);
@@ -472,12 +467,10 @@ struct BTree : public Segment {
         uint64_t parent_page_id = root.value();
         // "safe" inner pages = split when node is full
         while(true) {
-            Node* node = reinterpret_cast<Node*>(bufferFrame->get_data());
-            //Debugging
-            //bufferFrame_parent = &buffer_manager.fix_page(root.value(), true);
-            //InnerNode* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+            auto* node = reinterpret_cast<Node*>(bufferFrame->get_data());
+
             if (node->is_leaf()) {
-                LeafNode* leafNode = reinterpret_cast<LeafNode*>(node);
+                auto* leafNode = reinterpret_cast<LeafNode*>(node);
                 if (leafNode->is_full()) {
                     // leaf needs to be split
                     uint64_t new_leaf_id = next_page_id++;
@@ -494,7 +487,7 @@ struct BTree : public Segment {
                         bufferFrame_parent = &buffer_manager.fix_page(root.value(), true);
                         isDirty_parent = true;
                         // new root node
-                        InnerNode* innerNode = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+                        auto* innerNode = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
 
                         assert(!innerNode->is_full());
                         innerNode->level = 1;
@@ -509,8 +502,7 @@ struct BTree : public Segment {
                         }
                     } else {
                         // leaf is not root
-                        InnerNode* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
-                        LeafNode* new_node = reinterpret_cast<LeafNode*>(bufferFrame_new->get_data());
+                        auto* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
 
                         if (keyT < separator) {
                             // key is on old page -> change new page and old page index
@@ -523,8 +515,6 @@ struct BTree : public Segment {
                         isDirty = true;
                         isDirty_parent = true;
 
-                        auto lowerBound = parent_node->lower_bound(keyT);
-
                         // new iteration with not full child
                         // hold lock parent and correct child
                         if (keyT < separator) {
@@ -536,15 +526,14 @@ struct BTree : public Segment {
                     }
                 } else {
                     // leaf is not full
-                    // Debugging
-                    //InnerNode* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
-
                     leafNode->insert(keyT, valueT);
                     isDirty = true;
 
                     if(parent_page_id != 0) {
                         // leaf is not root -> has parent
-                        buffer_manager.unfix_page(*bufferFrame_parent, isDirty_parent);
+                        if (bufferFrame_parent != nullptr) {
+                            buffer_manager.unfix_page(*bufferFrame_parent, isDirty_parent);
+                        }
                     }
 
                     buffer_manager.unfix_page(*bufferFrame, isDirty);
@@ -553,7 +542,7 @@ struct BTree : public Segment {
 
             } else {
                 // node is inner node
-                InnerNode* innerNode = reinterpret_cast<InnerNode*>(node);
+                auto* innerNode = reinterpret_cast<InnerNode*>(node);
                 if (innerNode->is_full()) {
                     assert(parent_page_id != 0);
                     // innerNode is full -> split
@@ -566,7 +555,7 @@ struct BTree : public Segment {
                         uint64_t old_root_id = root.value();
                         root = next_page_id++;
                         bufferFrame_parent = &buffer_manager.fix_page(root.value(), true);
-                        InnerNode* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+                        auto* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
 
                         parent_node->level = innerNode->level + 1;
 
@@ -580,7 +569,7 @@ struct BTree : public Segment {
                             bufferFrame = bufferFrame_new;
                         }
                     } else {
-                        InnerNode *parent_node = reinterpret_cast<InnerNode *>(bufferFrame_parent->get_data());
+                        auto* parent_node = reinterpret_cast<InnerNode *>(bufferFrame_parent->get_data());
 
                         assert(!parent_node->is_full());
                         parent_node->level = innerNode->level + 1;
@@ -603,9 +592,10 @@ struct BTree : public Segment {
                     // innerNode has enough space
                     auto lowerBound = innerNode->lower_bound(keyT);
                     // new parent
-                    // TODO: Check if parent is locked
                     if (!onRoot) {
-                        buffer_manager.unfix_page(*bufferFrame_parent, isDirty_parent);
+                        if (bufferFrame_parent != nullptr) {
+                            buffer_manager.unfix_page(*bufferFrame_parent, isDirty_parent);
+                        }
                     }
                     bufferFrame_parent = bufferFrame;
 
