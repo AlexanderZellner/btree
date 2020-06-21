@@ -31,7 +31,7 @@ struct BTree : public Segment {
     struct InnerNode: public Node {
         /// The capacity of a node.
         /// TODO think about the capacity that the nodes have
-        static constexpr uint32_t kCapacity = PageSize / sizeof(KeyT) + sizeof(ValueT) - 2;
+        static constexpr uint32_t kCapacity = PageSize / (sizeof(KeyT) + sizeof(ValueT)) - 2;
 
         /// The keys.
         KeyT keys[kCapacity];
@@ -55,7 +55,13 @@ struct BTree : public Segment {
             // length of arrray
             int last = this->count - 1;
             std::optional<uint32_t> index = {};
-            assert(last < kCapacity);
+            // node is empty
+            if (last < first) {
+                result.first = first;
+                result.second = false;
+                return result;
+            }
+
             if (last == 1 && keys[first] > keyT) {
                 result.first = first;
                 result.second = true;
@@ -99,24 +105,43 @@ struct BTree : public Segment {
             std::vector<KeyT> keys_vector = get_key_vector();
             std::vector<uint64_t> children_vector = get_child_vector();
 
-            if (lower_bound.second) {
-                keys_vector.insert(keys_vector.begin() + lower_bound.first, keyT);
-                /// TODO: Check tree side
-                children_vector.insert(children_vector.begin() + lower_bound.first, child);
-            } else {
-                // keyT is greater than all existing keys
-                /// TODO: check split needed
-                keys_vector.push_back(keyT);
+            if (this->count == 1) {
+                // insert only child if only one key
                 children_vector.push_back(child);
+                this->count++;
+                for (auto i = 0; i < this->count; ++i) {
+                    children[i] = children_vector.at(i);
+                }
+                return;
+            } else {
+                if (lower_bound.second) {
+                    keys_vector.insert(keys_vector.begin() + lower_bound.first, keyT);
+                    /// TODO: Check tree side
+                    if (lower_bound.first < this->count - 1) {
+                        if(keyT > keys[lower_bound.first]) {
+                            //existing key
+                            children_vector.at(lower_bound.first) = child;
+                            return;
+                        } else {
+                            lower_bound.first += 1;
+                        }
+                    }
+                    children_vector.insert(children_vector.begin() + lower_bound.first, child);
+                } else {
+                    // keyT is greater than all existing keys
+                    keys_vector.push_back(keyT);
+                    children_vector.push_back(child);
+                }
             }
             this->count++;
 
-            // Copy vectos back to array
-            keys = keys_vector.data();
-            children = children_vector.data();
-
-            assert(keys[lower_bound] == keys_vector.at(lower_bound));
-            assert(children[lower_bound] == children_vector.at(lower_bound));
+            // Copy vectors back to array
+            for (auto i = 0; i < this->count; ++i) {
+               if (i < keys_vector.size()) {
+                   keys[i] = keys_vector.at(i);
+               }
+                children[i] = children_vector.at(i);
+            }
         }
 
         /// Split the node.
@@ -124,39 +149,35 @@ struct BTree : public Segment {
         /// @return                 The separator key.
         KeyT split(std::byte* buffer) {
             // node must be full
-            assert(*(&keys + 1) - keys == kCapacity);
-            auto middle = (kCapacity - 1)  / 2;
+            assert(this->count == kCapacity);
+            auto middle = this->count  / 2;
             InnerNode* new_inner_node = reinterpret_cast<InnerNode*>(buffer);
 
+            this->count -= middle;
+            new_inner_node->count = middle;
+            new_inner_node->level = this->level;
+            assert(this->level > 0);
+
+            std::memcpy(new_inner_node->keys, keys+this->count, (middle - 1) * sizeof(KeyT));
+            std::memcpy(new_inner_node->children, children+this->count, middle * sizeof(uint64_t));
+
             // get seperator key
-            KeyT seperator_key = keys[middle];
+            KeyT seperator_key = keys[this->count - 1];
 
-            KeyT tmp_keys[kCapacity];
-            uint64_t tmp_children[kCapacity + 1];
-            // copy one half to new node
-            for (int j = middle; j < kCapacity; ++j) {
-                tmp_keys = keys[j];
-                tmp_children = children[j];
-                keys[j] = {};
-                children[j] = {};
-            }
-
-            new_inner_node->keys = tmp_keys;
-            new_inner_node->children = tmp_children;
-            
             return seperator_key;
         }
 
         /// Returns the keys.
         std::vector<KeyT> get_key_vector() {
-            std::vector<KeyT> keys_vector(std::begin(keys), std::end(keys));
+            uint16_t num_keys = this->count == 0 ? this->count : this->count - 1;
+            std::vector<KeyT> keys_vector(keys, keys + num_keys);
             return keys_vector;
 
         }
 
         /// Returns the child page ids.
         std::vector<uint64_t> get_child_vector() {
-            std::vector<uint64_t> children_vector(std::begin(children), std::end(children));
+            std::vector<uint64_t> children_vector(children, children + this->count);
             return children_vector;
         }
     };
@@ -164,7 +185,7 @@ struct BTree : public Segment {
     struct LeafNode: public Node {
         /// The capacity of a node.
         /// TODO think about the capacity that the nodes have
-        static constexpr uint32_t kCapacity = 42;
+        static constexpr uint32_t kCapacity = (PageSize / (sizeof(KeyT) + sizeof(ValueT))) - 2;
 
         /// The keys.
         KeyT keys[kCapacity];
@@ -174,38 +195,130 @@ struct BTree : public Segment {
         /// Constructor.
         LeafNode() : Node(0, 0) {}
 
+        bool is_full() {
+            return this->count == kCapacity;
+        }
+
         /// Get the index of the first key that is not less than than a provided key.
-        std::pair<uint32_t, bool> lower_bound(const KeyT&) {
-            throw std::logic_error{"not implemented"};
+        std::pair<uint32_t, bool> lower_bound(const KeyT& keyT) {
+            // Binary search
+            std::pair<uint32_t, bool> result;
+            int first = 0;
+            // length of arrray
+            int last = this->count - 1;
+            std::optional<uint32_t> index = {};
+            // node is empty
+            if (last < first) {
+                result.first = first;
+                result.second = false;
+                return result;
+            }
+            if (last == 1 && keys[first] > keyT) {
+                result.first = first;
+                result.second = true;
+                return result;
+            }
+
+            while (first <= last) {
+                int middle = first + (last - first) / 2;
+
+                if (keyT == keys[middle]) {
+                    result.first = middle;
+                    result.second = true;
+                    return result;
+                }
+
+                if (keyT > keys[middle]) {
+                    first = middle + 1;
+                } else {
+                    index = middle;
+                    last = middle - 1;
+                }
+            }
+
+            if(index) {
+                result.first = index.value();
+                result.second = true;
+            } else {
+                result.first = 0;
+                result.second = false;
+            }
+            return result;
         }
 
         /// Insert a key.
         /// @param[in] key          The key that should be inserted.
         /// @param[in] value        The value that should be inserted.
-        void insert(const KeyT &, const ValueT &) {
-            throw std::logic_error{"not implemented"};
+        void insert(const KeyT & keyT, const ValueT & valueT) {
+            // insert key in keys[] -> insert child in children (page id)
+            auto lower_bound = this->lower_bound(keyT);
+            //vectorify arrays to insert key and child at correct point
+            std::vector<KeyT> keys_vector = get_key_vector();
+            std::vector<ValueT> values_vector = get_value_vector();
+
+            if (lower_bound.second) {
+                keys_vector.insert(keys_vector.begin() + lower_bound.first, keyT);
+                /// TODO: Check tree side
+                values_vector.insert(values_vector.begin() + lower_bound.first, valueT);
+            } else {
+                // keyT is greater than all existing keys
+                keys_vector.insert(keys_vector.begin() + this->count, keyT);
+                values_vector.insert(values_vector.begin() + this->count, valueT);
+            }
+            this->count++;
+
+            // Copy vectors back to array
+            for (auto i = 0; i < this->count; ++i) {
+                keys[i] = keys_vector.at(i);
+                values[i] = values_vector.at(i);
+            }
         }
 
         /// Erase a key.
-        void erase(const KeyT&) {
-            throw std::logic_error{"not implemented"};
+        void erase(const KeyT& keyT) {
+            auto lower_bound = this->lower_bound(keyT);
+            uint32_t i = lower_bound.first;
+            if (lower_bound, keys[lower_bound.first - 1] == keyT) {
+                std::memmove(keys + i, keys + i + 1, this->count - i - 1 * sizeof(KeyT));
+                std::memmove(keys + i, keys + i + 1, this->count - i - 1 * sizeof(ValueT));
+
+                assert(this->count > 0);
+                this->count--;
+            }
         }
 
         /// Split the node.
         /// @param[in] buffer       The buffer for the new page.
         /// @return                 The separator key.
-        KeyT split(std::byte*) {
-            throw std::logic_error{"not implemented"};
+        KeyT split(std::byte* buffer) {
+            assert(this->count == kCapacity);
+            auto middle = (this->count - 1) / 2;
+            LeafNode* new_leaf_node = reinterpret_cast<LeafNode*>(buffer);
+
+            this->count -= middle;
+            new_leaf_node->count = middle;
+
+            auto seperatorKey = keys[middle + 1];
+
+            auto* start_key = keys + this->count;
+            auto* start_value = values + this->count;
+            //TODO: check if +1 keys needed
+            std::copy(start_key, start_key + middle + 1, new_leaf_node->keys);
+            std::copy(start_value, start_value + middle + 1, new_leaf_node->values);
+
+            return seperatorKey;
         }
 
         /// Returns the keys.
         std::vector<KeyT> get_key_vector() {
-            throw std::logic_error{"not implemented"};
+            std::vector<KeyT> keys_vector(keys, keys + this->count);
+            return keys_vector;
         }
 
         /// Returns the values.
         std::vector<ValueT> get_value_vector() {
-            throw std::logic_error{"not implemented"};
+            std::vector<ValueT> values_vector(values, values + this->count);
+            return values_vector;
         }
     };
 
@@ -217,7 +330,7 @@ struct BTree : public Segment {
     /// Constructor.
     BTree(uint16_t segment_id, BufferManager& buffer_manager)
         : Segment(segment_id, buffer_manager) {
-        throw std::logic_error{"not implemented"};
+
     }
     /// Destructor.
     ~BTree() = default;
@@ -225,8 +338,57 @@ struct BTree : public Segment {
     /// Lookup an entry in the tree.
     /// @param[in] key      The key that should be searched.
     /// @return             Whether the key was in the tree.
-    std::optional<ValueT> lookup(const KeyT&) {
-        throw std::logic_error{"not implemented"};
+    std::optional<ValueT> lookup(const KeyT& keyT) {
+        std::optional<ValueT> foundKey;
+
+        if (!root) {
+            // empty tree
+            return foundKey;
+        }
+
+        uint64_t next_page;
+        BufferFrame* bufferFrame = &buffer_manager.fix_page(root.value(), false);
+        Node* node = reinterpret_cast<Node*>(bufferFrame->get_data());
+
+        while(!node->is_leaf()) {
+            // inner node
+            InnerNode* innerNode = reinterpret_cast<InnerNode*>(node);
+            // first keys[index] > keyT -> index - 1 ==> next_page
+            auto lowerBound = innerNode->lower_bound(keyT);
+            uint32_t child_index = 0;
+            if (lowerBound.second) {
+                // was - 1 here
+                child_index = lowerBound.first;
+            } else {
+                // keyT > all other keys -> must be in the most right branch
+                child_index = node->count - 1;
+            }
+
+            next_page = innerNode->children[child_index];
+
+            // lock coupling
+            BufferFrame* bufferFrame_child = &buffer_manager.fix_page(next_page, false);
+            buffer_manager.unfix_page(*bufferFrame, false);
+            bufferFrame = bufferFrame_child;
+
+            node = reinterpret_cast<Node*>(bufferFrame->get_data());
+        }
+        // node is leaf
+        LeafNode* leafNode = reinterpret_cast<LeafNode*>(node);
+        auto lowerBound = leafNode->lower_bound(keyT);
+        uint32_t value_index = lowerBound.first;
+        std::optional<ValueT> value;
+
+        if (lowerBound.second) {
+            // first > KeyT => -1
+            value = leafNode->values[value_index];
+        } else {
+            // all found keys were smaller than keyT => no result
+            value = {};
+        }
+
+        buffer_manager.unfix_page(*bufferFrame, false);
+        return value;
     }
 
     /// Erase an entry in the tree.
@@ -238,8 +400,174 @@ struct BTree : public Segment {
     /// Inserts a new entry into the tree.
     /// @param[in] key      The key that should be inserted.
     /// @param[in] value    The value that should be inserted.
-    void insert(const KeyT&, const ValueT&) {
-        throw std::logic_error{"not implemented"};
+    void insert(const KeyT& keyT, const ValueT& valueT) {
+        if (!root) {
+            // empty tree
+            root = 0;
+            next_page_id = 1;
+        }
+
+        // current node to operate on
+        BufferFrame* bufferFrame = &buffer_manager.fix_page(root.value(), true);
+        BufferFrame* bufferFrame_parent;
+        bool isDirty = false;
+        bool isDirty_parent = false;
+        bool onRoot = true;
+
+        uint64_t parent_page_id = root.value();
+        // "safe" inner pages = split when node is full
+        while(true) {
+            Node* node = reinterpret_cast<Node*>(bufferFrame->get_data());
+            //Debugging
+            //bufferFrame_parent = &buffer_manager.fix_page(root.value(), true);
+            //InnerNode* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+            if (node->is_leaf()) {
+                LeafNode* leafNode = reinterpret_cast<LeafNode*>(node);
+                if (leafNode->is_full()) {
+                    // leaf needs to be split
+                    uint64_t new_leaf_id = next_page_id++;
+                    BufferFrame* bufferFrame_new = &buffer_manager.fix_page(new_leaf_id, true);
+                    KeyT separator = leafNode->split(reinterpret_cast<std::byte *>(bufferFrame_new->get_data()));
+                    isDirty = true;
+
+                    if (parent_page_id == 0) {
+                        // only root node
+                        uint64_t old_leaf_id = root.value();
+                        root = next_page_id++;
+                        parent_page_id = root.value();
+
+                        bufferFrame_parent = &buffer_manager.fix_page(root.value(), true);
+                        isDirty_parent = true;
+                        // new root node
+                        InnerNode* innerNode = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+
+                        assert(!innerNode->is_full());
+                        innerNode->level = 1;
+                        innerNode->count = 0;
+
+                        innerNode->insert(separator,old_leaf_id);
+                        assert(innerNode->count == 1);
+                        innerNode->insert(separator, new_leaf_id);
+                        if (separator < keyT) {
+                            buffer_manager.unfix_page(*bufferFrame, isDirty);
+                            bufferFrame = bufferFrame_new;
+                        }
+                    } else {
+                        // leaf is not root
+                        InnerNode* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+                        LeafNode* new_node = reinterpret_cast<LeafNode*>(bufferFrame_new->get_data());
+
+                        if (keyT < separator) {
+                            // key is on old page -> change new page and old page index
+                            //parent_node->insert(separator, current_id);
+
+                        }
+                        assert(!parent_node->is_full());
+                        assert(parent_node->level >= 1);
+                        parent_node->insert(separator, new_leaf_id);
+                        isDirty = true;
+                        isDirty_parent = true;
+
+                        auto lowerBound = parent_node->lower_bound(keyT);
+
+                        // new iteration with not full child
+                        // hold lock parent and correct child
+                        if (lowerBound.second) {
+                            buffer_manager.unfix_page(*bufferFrame_new, isDirty);
+                        } else {
+                            buffer_manager.unfix_page(*bufferFrame, isDirty);
+                            bufferFrame = bufferFrame_new;
+                        }
+                    }
+                } else {
+                    // leaf is not full
+                    // Debugging
+                    //InnerNode* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+
+                    leafNode->insert(keyT, valueT);
+                    isDirty = true;
+
+                    if(parent_page_id != 0) {
+                        // leaf is not root -> has parent
+                        buffer_manager.unfix_page(*bufferFrame_parent, isDirty_parent);
+                    }
+
+                    buffer_manager.unfix_page(*bufferFrame, isDirty);
+                    return;
+                }
+
+            } else {
+                // node is inner node
+                InnerNode* innerNode = reinterpret_cast<InnerNode*>(node);
+                if (innerNode->is_full()) {
+                    assert(parent_page_id != 0);
+                    // innerNode is full -> split
+                    uint64_t new_innerNode_id = next_page_id++;
+                    BufferFrame* bufferFrame_new = &buffer_manager.fix_page(new_innerNode_id, true);
+                    KeyT separator = innerNode->split(reinterpret_cast<std::byte *>(bufferFrame_new->get_data()));
+                    // get parent
+                    if (onRoot) {
+                        // inner node is root -> needs new parent
+                        uint64_t old_root_id = root.value();
+                        root = next_page_id++;
+                        bufferFrame_parent = &buffer_manager.fix_page(root.value(), true);
+                        InnerNode* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+
+                        parent_node->level = innerNode->level + 1;
+
+                        parent_node->insert(separator, old_root_id);
+                        assert(parent_node->count == 1);
+                        parent_node->insert(separator, new_innerNode_id);
+                        isDirty = true;
+
+                        if (separator < keyT) {
+                            buffer_manager.unfix_page(*bufferFrame, isDirty);
+                            bufferFrame = bufferFrame_new;
+                        }
+                    } else {
+                        InnerNode *parent_node = reinterpret_cast<InnerNode *>(bufferFrame_parent->get_data());
+
+                        assert(!parent_node->is_full());
+                        parent_node->level = innerNode->level + 1;
+                        parent_node->insert(separator, new_innerNode_id);
+
+                        isDirty = true;
+                        isDirty_parent = true;
+
+                        auto lowerBound = parent_node->lower_bound(keyT);
+
+                        if (lowerBound.second) {
+                            // not the last key -> unfix new bufferFrame
+                            buffer_manager.unfix_page(*bufferFrame_new, isDirty);
+                        } else {
+                            buffer_manager.unfix_page(*bufferFrame, isDirty);
+                            bufferFrame = bufferFrame_new;
+                        }
+                    }
+                } else {
+                    // innerNode has enough space
+                    auto lowerBound = innerNode->lower_bound(keyT);
+                    // new parent
+                    // TODO: Check if parent is locked
+                    if (!onRoot) {
+                        buffer_manager.unfix_page(*bufferFrame_parent, isDirty_parent);
+                    }
+                    bufferFrame_parent = bufferFrame;
+
+                    if (lowerBound.second) {
+                        // left child
+                        uint64_t child_id = innerNode->children[lowerBound.first];
+                        bufferFrame = &buffer_manager.fix_page(child_id, true);
+                    } else {
+                        // right child
+                        uint64_t child_id = innerNode->children[innerNode->count - 1];
+                        bufferFrame = &buffer_manager.fix_page(child_id, true);
+                    }
+                }
+            }
+            // after first iteration node cannot be root anymore -> always a parent now
+            onRoot = false;
+        }
     }
 };
 

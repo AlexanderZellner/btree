@@ -110,7 +110,7 @@ TEST(BTreeTest, LeafNodeSplit) {
     left_values = left_node->get_value_vector();
     ASSERT_EQ(left_keys.size(), left_node->count);
     ASSERT_EQ(left_values.size(), left_node->count);
-    for (auto i = 0; i < left_node->count - 1; ++i) {
+    for (auto i = 0; i < left_node->count; ++i) {
         ASSERT_EQ(left_keys[i], i);
     }
     for (auto i = 0; i < left_node->count; ++i) {
