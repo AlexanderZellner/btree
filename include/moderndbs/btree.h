@@ -459,7 +459,7 @@ struct BTree : public Segment {
 
         // current node to operate on
         BufferFrame* bufferFrame = &buffer_manager.fix_page(root.value(), true);
-        BufferFrame* bufferFrame_parent;
+        BufferFrame* bufferFrame_parent = NULL;
         bool isDirty = false;
         bool isDirty_parent = false;
         bool onRoot = true;
