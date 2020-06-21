@@ -121,8 +121,16 @@ struct BTree : public Segment {
                         if(keyT > keys[lower_bound.first]) {
                             //existing key
                             children_vector.at(lower_bound.first) = child;
+                            // write back vector
+                            for (auto i = 0; i < this->count; ++i) {
+                                if (i < keys_vector.size()) {
+                                    keys[i] = keys_vector.at(i);
+                                }
+                                children[i] = children_vector.at(i);
+                            }
                             return;
                         } else {
+                            // inserting in lhs -> new page > old page
                             lower_bound.first += 1;
                         }
                     }
@@ -158,8 +166,8 @@ struct BTree : public Segment {
             new_inner_node->level = this->level;
             assert(this->level > 0);
 
-            std::memcpy(new_inner_node->keys, keys+this->count, (middle - 1) * sizeof(KeyT));
-            std::memcpy(new_inner_node->children, children+this->count, middle * sizeof(uint64_t));
+            memcpy(new_inner_node->keys, keys+this->count, (middle - 1) * sizeof(KeyT));
+            memcpy(new_inner_node->children, children+this->count, middle * sizeof(uint64_t));
 
             // get seperator key
             KeyT seperator_key = keys[this->count - 1];
@@ -257,8 +265,16 @@ struct BTree : public Segment {
             std::vector<ValueT> values_vector = get_value_vector();
 
             if (lower_bound.second) {
+                if (keyT >= keys[lower_bound.first]) {
+                    // update value for existing key
+                    values_vector.at(lower_bound.first) = valueT;
+                    for (auto i = 0; i < this->count; ++i) {
+                        keys[i] = keys_vector.at(i);
+                        values[i] = values_vector.at(i);
+                    }
+                    return;
+                }
                 keys_vector.insert(keys_vector.begin() + lower_bound.first, keyT);
-                /// TODO: Check tree side
                 values_vector.insert(values_vector.begin() + lower_bound.first, valueT);
             } else {
                 // keyT is greater than all existing keys
@@ -279,8 +295,8 @@ struct BTree : public Segment {
             auto lower_bound = this->lower_bound(keyT);
             uint32_t i = lower_bound.first;
             if (lower_bound, keys[lower_bound.first - 1] == keyT) {
-                std::memmove(keys + i, keys + i + 1, this->count - i - 1 * sizeof(KeyT));
-                std::memmove(keys + i, keys + i + 1, this->count - i - 1 * sizeof(ValueT));
+                memmove(keys + i, keys + i + 1, this->count - i - 1 * sizeof(KeyT));
+                memmove(keys + i, keys + i + 1, this->count - i - 1 * sizeof(ValueT));
 
                 assert(this->count > 0);
                 this->count--;
@@ -303,7 +319,7 @@ struct BTree : public Segment {
             auto* start_key = keys + this->count;
             auto* start_value = values + this->count;
             //TODO: check if +1 keys needed
-            std::copy(start_key, start_key + middle + 1, new_leaf_node->keys);
+            std::copy(start_key, start_key + middle, new_leaf_node->keys);
             std::copy(start_value, start_value + middle + 1, new_leaf_node->values);
 
             return seperatorKey;
@@ -381,6 +397,7 @@ struct BTree : public Segment {
 
         if (lowerBound.second) {
             // first > KeyT => -1
+            //TODO: check == keyT
             value = leafNode->values[value_index];
         } else {
             // all found keys were smaller than keyT => no result
@@ -472,7 +489,7 @@ struct BTree : public Segment {
 
                         // new iteration with not full child
                         // hold lock parent and correct child
-                        if (lowerBound.second) {
+                        if (keyT < separator) {
                             buffer_manager.unfix_page(*bufferFrame_new, isDirty);
                         } else {
                             buffer_manager.unfix_page(*bufferFrame, isDirty);
