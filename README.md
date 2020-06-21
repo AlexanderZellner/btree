@@ -1,5 +1,9 @@
 # B+-Tree
 
+Name: Alexander Zellner
+
+MatrNr: 03686945
+
 Implement a B+-Tree index for your database using the header `include/moderndbs/btree.h`.
 Use page ids and your buffer manager instead of pointers to resolve child nodes in the tree.
 
