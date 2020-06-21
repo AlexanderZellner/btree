@@ -459,7 +459,7 @@ struct BTree : public Segment {
 
         // current node to operate on
         BufferFrame* bufferFrame = &buffer_manager.fix_page(root.value(), true);
-        BufferFrame* bufferFrame_parent = NULL;
+        BufferFrame* bufferFrame_parent = nullptr;
         bool isDirty = false;
         bool isDirty_parent = false;
         bool onRoot = true;
@@ -502,14 +502,15 @@ struct BTree : public Segment {
                         }
                     } else {
                         // leaf is not root
-                        auto* parent_node = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+                        if (bufferFrame_parent != nullptr) {
+                            auto *parent_node = reinterpret_cast<InnerNode *>(bufferFrame_parent->get_data());
+                            assert(!parent_node->is_full());
+                            assert(parent_node->level >= 1);
 
-                        assert(!parent_node->is_full());
-                        assert(parent_node->level >= 1);
-
-                        parent_node->insert(separator, new_leaf_id);
+                            parent_node->insert(separator, new_leaf_id);
+                            isDirty_parent = true;
+                        }
                         isDirty = true;
-                        isDirty_parent = true;
 
                         // new iteration with not full child
                         // hold lock parent and correct child
@@ -527,7 +528,7 @@ struct BTree : public Segment {
 
                     if(parent_page_id != 0) {
                         // leaf is not root -> has parent
-                        if (bufferFrame_parent != NULL) {
+                        if (bufferFrame_parent != nullptr) {
                             buffer_manager.unfix_page(*bufferFrame_parent, isDirty_parent);
                         }
                     }
