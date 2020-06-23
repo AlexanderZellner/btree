@@ -456,7 +456,7 @@ struct BTree : public Segment {
 
         if (leafNode->count <= 0) {
             // node is empty remove node
-            InnerNode* node_parent = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+            auto* node_parent = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
             auto lowerBound = node_parent->lower_bound(keyT);
             if (lowerBound.second) {
                 uint32_t i = lowerBound.first;
