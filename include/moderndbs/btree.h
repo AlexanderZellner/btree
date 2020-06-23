@@ -289,9 +289,9 @@ struct BTree : public Segment {
 
         /// Erase a key.
         void erase(const KeyT& keyT) {
-            auto lower_bound = this->lower_bound(keyT);
-            uint32_t i = lower_bound.first;
-            if (keys[lower_bound.first] == keyT) {
+            auto lowerBound = this->lower_bound(keyT);
+            uint32_t i = lowerBound.second ? lowerBound.first : this->count - 1;
+            if (keys[lowerBound.first] == keyT) {
                 memmove(keys + i, keys + i + 1, (this->count - i - 1) * sizeof(KeyT));
                 memmove(values + i, values + i + 1, (this->count - i - 1) * sizeof(ValueT));
 
@@ -417,6 +417,9 @@ struct BTree : public Segment {
         BufferFrame* bufferFrame = &buffer_manager.fix_page(root.value(), false);
         auto* node = reinterpret_cast<Node*>(bufferFrame->get_data());
 
+        BufferFrame* bufferFrame_parent = nullptr;
+        bool onRoot = true;
+
         while(!node->is_leaf()) {
             // inner node
             auto* innerNode = reinterpret_cast<InnerNode*>(node);
@@ -433,11 +436,14 @@ struct BTree : public Segment {
 
             next_page = innerNode->children[child_index];
 
-            BufferFrame* bufferFrame_child = &buffer_manager.fix_page(next_page, false);
-            buffer_manager.unfix_page(*bufferFrame, false);
-            bufferFrame = bufferFrame_child;
+            if (!onRoot) {
+                buffer_manager.unfix_page(*bufferFrame_parent, false);
+            }
+            bufferFrame_parent = bufferFrame;
+            bufferFrame = &buffer_manager.fix_page(next_page, false);
 
             node = reinterpret_cast<Node*>(bufferFrame->get_data());
+            onRoot = false;
         }
         // node is leaf
         auto* leafNode = reinterpret_cast<LeafNode*>(node);
@@ -445,6 +451,21 @@ struct BTree : public Segment {
         // remove leaf if node == empty -> delete node
         leafNode->erase(keyT);
 
+        if (leafNode->count <= 0) {
+            // node is empty remove node
+            InnerNode* node_parent = reinterpret_cast<InnerNode*>(bufferFrame_parent->get_data());
+            auto lowerBound = node_parent->lower_bound(keyT);
+            if (lowerBound.second) {
+                uint32_t i = lowerBound.first;
+                if (node_parent->keys[lowerBound.first] == keyT) {
+                    memmove(node_parent->keys + i, node_parent->keys + i + 1, (node_parent->count - i - 1) * sizeof(KeyT));
+                    memmove(node_parent->children + i, node_parent->children + i + 1, (node_parent->count - i - 1) * sizeof(ValueT));
+
+                    node_parent->count--;
+                }
+            }
+        }
+        buffer_manager.unfix_page(*bufferFrame, true);
     }
 
     /// Inserts a new entry into the tree.
