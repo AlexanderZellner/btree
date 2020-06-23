@@ -10,6 +10,9 @@
 
 namespace moderndbs {
 
+    // There was a mistake in my buffer_manager implementation,
+    // which I didn't find so I changed to the default back
+
 template<typename KeyT, typename ValueT, typename ComparatorT, size_t PageSize>
 struct BTree : public Segment {
     struct Node {
